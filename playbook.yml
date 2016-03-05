@@ -1,0 +1,67 @@
+---
+- hosts: all
+  user: root
+  sudo: yes
+  vars:
+    mysql_root_password:
+    mysql_zabbix_password:
+  tasks:
+    - name: install repo 
+      yum: name={{ item }} state=installed
+      with_items:
+        - http://repo.zabbix.com/zabbix/3.0/rhel/7/x86_64/zabbix-release-3.0-1.el7.noarch.rpm
+        - epel-release
+
+    - name: install zabbix
+      yum: name={{ item }} state=installed
+      with_items:
+        - zabbix-server-mysql
+        - zabbix-web-mysql
+        - zabbix-web-japanese
+        - zabbix-agent
+        - mariadb-server
+        - MySQL-python
+        - net-snmp 
+        - net-snmp-perl
+        - ipmitool
+        - snmptt
+        - net-snmp-utils
+
+    - name: mariadb settings
+      copy: src=server.cnf dest=/etc/my.cnf.d/server.cnf owner=root group=root mode=644
+
+    - name: MariaDB started and enabled
+      service: name=mariadb state=started enabled=yes
+
+    - name: setup mysql user
+      mysql_user: name=zabbix password="{{ mysql_zabbix_password }}" priv=*.*:ALL,GRANT state=present
+
+    - name: setup mysql database
+      mysql_db: name=zabbix state=present
+
+    - name: first data import
+      shell: cd /usr/share/doc/zabbix-server-mysql* && zcat create.sql.gz | mysql -uroot zabbix
+
+
+    - name: setup php zabbix.conf
+      copy: src=zabbix.conf dest=/etc/httpd/conf.d/zabbix.conf owner=root group=root mode=644
+
+    - name: replace database password
+      replace: dest=/etc/zabbix/zabbix_server.conf regexp='^# DBPassword=$' replace='DBPassword={{ mysql_zabbix_password }}' backup=yes
+
+    - name: port enable
+      firewalld: port={{ item }} permanent=true state=enabled immediate=true
+      with_items:
+        - 80/tcp
+        - 10050-10051/tcp
+
+    - name: MariaDB started and enabled
+      service: name={{ item }} state=started enabled=yes
+      with_items:
+        - zabbix-server
+        - zabbix-agent
+        - httpd
+        - firewalld
+
+    - name: root account settings
+      mysql_user: name=root host=localhost password="{{ mysql_root_password }}"
